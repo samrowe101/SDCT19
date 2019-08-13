@@ -1,0 +1,365 @@
+---
+title: 'Selective Dry Cow Therapy: Quarter-level analysis descriptive'
+output:
+  html_notebook:
+    toc: true
+    toc_float:
+      collapsed: false
+
+---
+
+```{r}
+library(knitr)
+```
+
+```{r setup}
+#Mac
+knitr::opts_knit$set(root.dir = "~/Dropbox/R backup/SDCT - R")
+
+#Windows
+#knitr::opts_knit$set(root.dir = "C:/Users/rowe0122/Dropbox/R backup/SDCT - R")
+
+```
+
+
+```{r}
+library(knitr)
+```
+
+Load data
+```{r}
+load(file="SDCTQTR.Rdata")
+```
+
+
+# Evaluate Data
+## Show first 10 rows of baseline
+```{r}
+load(file="Baseline.Rdata")
+head(Baseline, n=10)
+```
+
+<br>
+<br>
+## Inspect Data 
+```{r}
+#summarytools::dfSummary(Baseline, style='grid')
+print(summarytools::dfSummary(Baseline, valid.col=FALSE, graph.magnif=0.8, style="grid"), method = "render")
+```
+<br>
+<br>
+## Pathogens
+```{r}
+table1::table1(~ DOCult2 | Tx, data=SDCTQTR)
+table1::table1(~ PCCult1 | FARMID, data=SDCTQTR)
+```
+
+
+## Compare treatment groups at baseline
+```{r}
+table1::table1(~ factor(FARMID) + Spectramast + Age + Parity + factor(IMIDO) + DOSCC + DOMY + DODIM + PrevCM + PrevSCCHI + DPlength + PCSampDIM | Tx, data=SDCTQTR)
+```
+
+<br>
+<br>
+<br>
+## Compare herds
+```{r}
+table1::table1(~ Age + Parity  + DOSCC + DOMY + DODIM + PrevCM + PrevSCCHI + DPlength + PCSampDIM + factor(IMIDO) + factor(IMIPC) + factor(Cure) + factor(NewIMI) | factor(FARMID), data=SDCTQTR)
+```
+
+# Outcome 1: Cure
+```{r}
+CrossTable(SDCTQTR$Tx,SDCTQTR$Cure,prop.c=FALSE,prop.t=FALSE,prop.chisq = FALSE)
+```
+
+## Logistic regression model for dry period cure
+## Model building plan
+
+Model type: Logistic regression with mixed effects (generalized linear mixed model with binomial family / logit link).  
+
+Step 1: Identify potential confouders using a directed acyclic graph (DAG)
+
+Step 2: Identify correlated variables using pearson and kendalls correlation coefficients
+
+Step 3: Create model with all potential confounders
+
+Step 4: Investigate potential effect measure modification
+
+Step 5: Remove unneccesary covariates in backwards stepwise fashion using 10% rule (i.e. if odds ratio for algorithm or culture changes by >10% after removing the covariate, the covariate is retained in the model)
+
+Step 6: Report final model
+
+### Step 1: DAG
+This is used to identify variables that could be confounders if they are not balanced between treatment groups. 
+```{r fig.width = 10}
+library(DiagrammeR)
+mermaid("graph LR
+        T(Treatment)-->U(Cure)
+        A(Age)-->T
+        P(Parity)-->T
+        M(Yield at dry-off)-->T
+        S(SCC during prev lactation)-->T
+        C(CM in prev lact)-->T
+        D(DIM at dry off) --> T
+        K(DIM at post calving sample) --> T
+        D-->M
+        D-->S
+        D-->U
+        K-->U
+        A-->U
+        P-->U
+        M-->U
+        S-->U
+        C-->U
+        C-->M
+        P-->C
+        P-->S
+        P-->M
+        A-->P
+        A-->C
+        A-->S
+        A-->M
+        M-->S
+        C-->S
+style D fill:#FFFFFF, stroke-width:0px
+style K fill:#FFFFFF, stroke-width:0px
+style A fill:#FFFFFF, stroke-width:0px
+        style T fill:#FFFFFF, stroke-width:2px
+        style P fill:#FFFFFF, stroke-width:0px
+        style M fill:#FFFFFF, stroke-width:0px
+        style S fill:#FFFFFF, stroke-width:0px
+        style C fill:#FFFFFF, stroke-width:0px
+        style I fill:#FFFFFF, stroke-width:0px
+        style U fill:#FFFFFF, stroke-width:2px
+        ")
+```
+According to this DAG, I may need to control for the following variables.
+
+Parity ["Parity"] or Age ["Age"] <- likely to correlated
+
+Yield at most recent test before dry off ["DOMY"]
+
+Somatic cell count at last herd test during previous lactation ["DOSCC" or "PrevSCCHi"] <- likely to be correlated
+
+Clinical mastitis in previous lactation ["PrevCM"]
+
+Days in milk at dry-off ["DODIM"]
+
+Days in milk at post-calving sample ["PCSampDIM"]
+
+<br>
+<br>
+<br>
+<br>
+
+### Step 2: Identify correlated covariates
+Pearson correlation matrix among potential predictors
+```{r}
+cor <- Baseline[, c(6,7,9,10,11,13,14,15)]
+cor$Parity <- as.numeric(cor$Parity)
+#corrplot(cor)
+cor <- cor(cor, use = "complete.obs")
+round(cor, 2)
+```
+
+```{r}
+cor <- Baseline[, c(6,7,9,10,11,13,14,15)]
+cor$Parity <- as.numeric(cor$Parity)
+cor <- cor(cor, use = "complete.obs", method="kendal")
+round(cor, 2)
+```
+
+Age and Parity highly correlated as expected.  Will only offer parity. 
+
+Previous lactation peak SCC is moderately correlated with SCC at last herd test (DOSCC). Will only offer DOSCC. 
+
+<br>
+<br>
+<br>
+<br>
+
+
+# Outcome 2: IMI at Calving
+```{r}
+CrossTable(SDCTQTR$Tx,SDCTQTR$IMIPC,prop.c=FALSE,prop.t=FALSE,prop.chisq = FALSE)
+```
+## Logistic regression model for IMI at calving
+## Model building plan
+
+Model type: Logistic regression with mixed effects (generalized linear mixed model with binomial family / logit link).  
+
+Step 1: Identify potential confouders using a directed acyclic graph (DAG)
+
+Step 2: Create model with all potential confounders
+
+Step 3: Investigate potential effect measure modification
+
+Step 4: Remove unneccesary covariates in backwards stepwise fashion using 10% rule (i.e. if odds ratio for algorithm or culture changes by >10% after removing the covariate, the covariate is retained in the model)
+
+Step 5: Report final model
+
+### Step 1: DAG
+This is used to identify variables that could be confounders if they are not balanced between treatment groups. 
+```{r fig.width = 10}
+library(DiagrammeR)
+mermaid("graph LR
+        T(Treatment)-->U(IMI at calving)
+        A(Age)-->T
+        P(Parity)-->T
+        M(Yield at dry-off)-->T
+        S(SCC during prev lactation)-->T
+        C(CM in prev lact)-->T
+        D(DIM at dry off) --> M
+        I(IMI at dry off) --> T
+        K(DIM at post calving sample) --> T
+        I-->U
+        P-->I
+        A-->I
+        C-->I
+        I-->S
+        I-->M
+        D-->S
+        D-->U
+        K-->U
+        A-->U
+        P-->U
+        M-->U
+        S-->U
+        C-->U
+        C-->M
+        P-->C
+        P-->S
+        P-->M
+        A-->P
+        A-->C
+        A-->S
+        A-->M
+        M-->S
+        C-->S
+style D fill:#FFFFFF, stroke-width:0px
+style K fill:#FFFFFF, stroke-width:0px
+style A fill:#FFFFFF, stroke-width:0px
+        style T fill:#FFFFFF, stroke-width:2px
+        style P fill:#FFFFFF, stroke-width:0px
+        style M fill:#FFFFFF, stroke-width:0px
+        style S fill:#FFFFFF, stroke-width:0px
+        style C fill:#FFFFFF, stroke-width:0px
+        style I fill:#FFFFFF, stroke-width:0px
+        style U fill:#FFFFFF, stroke-width:2px
+        ")
+```
+According to this DAG, I may need to control for the following variables.
+
+Parity ["Parity"] or Age ["Age"] <- will use Parity
+
+Yield at most recent test before dry off ["DOMY"]
+
+Somatic cell count at last herd test during previous lactation ["DOSCC" or "PrevSCCHi"] <- will use DOSCC
+
+Clinical mastitis in previous lactation ["PrevCM"]
+
+IMI at dry-off ["DOIMI"]
+
+Days in milk at dry-off ["DODIM"]
+
+Days in milk at post-calving sample ["PCSampDIM"]
+
+<br>
+<br>
+<br>
+<br>
+
+
+
+# Outcome 3: New IMI
+```{r}
+CrossTable(SDCTQTR$Tx,SDCTQTR$NewIMI,prop.c=FALSE,prop.t=FALSE,prop.chisq = FALSE)
+```
+
+## Logistic regression model for new IMI
+## Model building plan
+
+Model type: Logistic regression with mixed effects (generalized linear mixed model with binomial family / logit link).  
+
+Step 1: Identify potential confouders using a directed acyclic graph (DAG)
+
+Step 2: Create model with all potential confounders
+
+Step 3: Investigate potential effect measure modification
+
+Step 4: Remove unneccesary covariates in backwards stepwise fashion using 10% rule (i.e. if odds ratio for algorithm or culture changes by >10% after removing the covariate, the covariate is retained in the model)
+
+Step 5: Report final model
+
+### Step 1: DAG
+This is used to identify variables that could be confounders if they are not balanced between treatment groups. 
+```{r fig.width = 10}
+library(DiagrammeR)
+mermaid("graph LR
+        T(Treatment)-->U(New IMI)
+        A(Age)-->T
+        P(Parity)-->T
+        M(Yield at dry-off)-->T
+        S(SCC during prev lactation)-->T
+        C(CM in prev lact)-->T
+        D(DIM at dry off) --> T
+        I(IMI at dry off) --> T
+        K(DIM at post calving sample) --> T
+        I-->U
+        P-->I
+        A-->I
+        C-->I
+        I-->S
+        I-->M
+        D-->S
+        D-->M        
+        D-->U
+        K-->U
+        A-->U
+        P-->U
+        M-->U
+        S-->U
+        C-->U
+        C-->M
+        P-->C
+        P-->S
+        P-->M
+        A-->P
+        A-->C
+        A-->S
+        A-->M
+        M-->S
+        C-->S
+style D fill:#FFFFFF, stroke-width:0px
+style K fill:#FFFFFF, stroke-width:0px
+style A fill:#FFFFFF, stroke-width:0px
+        style T fill:#FFFFFF, stroke-width:2px
+        style P fill:#FFFFFF, stroke-width:0px
+        style M fill:#FFFFFF, stroke-width:0px
+        style S fill:#FFFFFF, stroke-width:0px
+        style C fill:#FFFFFF, stroke-width:0px
+        style I fill:#FFFFFF, stroke-width:0px
+        style U fill:#FFFFFF, stroke-width:2px
+        ")
+```
+According to this DAG, I may need to control for the following variables.
+
+Parity ["Parity"] or Age ["Age"] <- will use Parity
+
+Yield at most recent test before dry off ["DOMY"]
+
+Somatic cell count at last herd test during previous lactation ["DOSCC" or "PrevSCCHi"] <- will use DOSCC
+
+Clinical mastitis in previous lactation ["PrevCM"]
+
+IMI at dry-off ["DOIMI"]
+
+Days in milk at dry-off ["DODIM"]
+
+Days in milk at post-calving sample ["PCSampDIM"]
+
+<br>
+<br>
+<br>
+<br>
